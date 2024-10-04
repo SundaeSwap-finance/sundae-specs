@@ -123,7 +123,61 @@ From there, the dApp can use existing standards, such as #link("https://didcomm.
 
 = Sundae Protocol Permissioned Pools
 
+SundaeSwap v3 is a fast, decentralized AMM based exchange built by Sundae Labs.
+
+We propose making the following updates to the Sundae v3 Protocol:
+ - Define a new pool type, `v3-permissioned`
+ - This new pool has a new `condition` property, which is of type `ScriptHash`
+   - If the pool UTxO is spent with the `PoolScoop` redeemer, the `condition` must be present in the `withdrawals` of the transaction, effectively "blessing" the scoop.
+   - To avoid locking user funds in the pool, a scoop that consists of only withdrawals is exempt from this condition.
+ - A list of `allowed_conditions` is added to the `settings` datum, utilizing the `extensions` field
+   - Minting a new `v3-permissioned` pool requires that the `condition` be one of the conditions in the `allowed_conditions` in the `settings` datum.
+ - A new redeemer is added to `ManageRedeemer` to allow management of the condition.
+   - If the pool UTxO is spent with the `Manage` redeemer, the `PoolManage` script must be present in the withdrawals of the transaction. (This is already the case.)
+   - If the `PoolManage` script is invoked with the `ManageCondition` redeemer, the current condition must be present in the withdrawals, the new `condition` must be present in the `allowed_conditions` field in the settings datum.
+ - Validation of the following conditions are moved to a default condition script:
+  - Checking that the transaction is signed by a scooper
+  - Checking that the correct protocol fee is paid
+  - Checking that the correct pool fee is paid
+
+The above allows arbitrary additional logic to be layered on to the pool. Some examples of how this might be used:
+  - A pool that only allows trading from 9 to 5 to synchronize with an existing market
+  - A pool that only allows deposits or swaps if they bear a signed authorization token
+  - A pool that allows swaps to pay a lower protocol or pool fee if they hold a threshold of token or a membership NFT
+
 = Netki Compliant Pools
+
+@netki is a company that provides compliance and identity verification services for Web3 contexts. We have been in discussions with them on a way to bring “clean” pools to SundaeSwap v3.
+
+Based on those discussions, we propose the following scheme that builds on the standards in the previous sections:
+
+- Each pool will include, in the `extensions` field, a list of approved compliance oracles
+  - This can be set when the pool is created
+- Each order will include, in the `extra` field, a signed compliance token
+  - The compliance token will consist of:
+    - The users @did Identifier
+    - The users public key
+    - The destination address
+    - Blake2b-256 hash of the cbor serialized details from the order
+    - A valid range
+    - The public key of the oracle
+    - A signature from the compliance oracle for fields 1-6
+  - The condition will validate that each order:
+    - Has an attached compliance token
+    - The `owner` of an order is the same as the public key in the token
+    - The `destination` of an order is the same as the one in the token
+    - The order details hash to the same hash from the token
+    - The valid range of the transaction entirely contains the valid range from the token
+    - The oracle public key is one of those listed in the approved oracles
+    - The signature is valid
+
+When a user wishes to perform a swap, the dApp then:
+ - Notifies @netki that a swap has been started for a specific @did
+ - Asks the identity wallet to show their @kyc credential to @netki
+   - This may also redirect to a flow asking the user to perform @kyc with Netki to issue said credential 
+ - Netki checks the configured compliance rules against that @did
+ - Netki notifies the dApp with an authorization token that can be included in the transaction
+ - The dApp builds the transaction, asks for a signature, and submits it to the blockchain
 
 = Conclusion
 
@@ -189,6 +243,11 @@ End to end, here is a sequence diagram that illustrates how the above three prot
       short: "KYC",
       long: "Know Your Customer",
       desc: "A series of steps and data collection policies that one entity might employ so it can transact with another and verify the identify of a customer",
+    ),
+    (
+      key: "netki",
+      short: "Netki",
+      desc: "A compliance oracle solution for web3, that can check the compliance of a transaction against a flexible and configurable ruleset."
     )
   ),
 )
